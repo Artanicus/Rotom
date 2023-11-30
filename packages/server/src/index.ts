@@ -21,8 +21,8 @@ import { log } from './logger';
 import { fastify, startWebserver } from './webserver';
 //import fa from '@faker-js/faker/locales/fa';
 
-/* Initialise websocket server from Mitm */
-const wssMitm = new WebSocketServer({ port: config.deviceListener.port, perMessageDeflate: false });
+/* Initialise websocket server from Device */
+const wssDevice = new WebSocketServer({ port: config.deviceListener.port, perMessageDeflate: false });
 
 const controlConnections: Record<string, DeviceControlConnection> = {};
 const currentConnections: Record<
@@ -44,15 +44,15 @@ process
     process.exit(1);
   });
 
-wssMitm.on('connection', (ws, req) => {
+wssDevice.on('connection', (ws, req) => {
   if (config.deviceListener.secret) {
     if (config.deviceListener.secret != req.headers['x-rotom-secret']) {
-      log.info(`MITM: New connection from ${req.socket.remoteAddress} url ${req.url} - incorrect secret, rejecting`);
+      log.info(`Device: New connection from ${req.socket.remoteAddress} url ${req.url} - incorrect secret, rejecting`);
       ws.close(3401, 'Invalid secret presented');
       return;
     }
   }
-  log.info(`MITM: New connection from ${req.socket.remoteAddress} url ${req.url}`);
+  log.info(`Device: New connection from ${req.socket.remoteAddress} url ${req.url}`);
 
   if (req.url === '/control') {
     const deviceControlConnection = new DeviceControlConnection(log, ws);
@@ -166,7 +166,7 @@ wssMitm.on('connection', (ws, req) => {
         }
 
         if (currentConnection.controller) {
-          log.info(`${workerId}: Disconnect: There was a Scanner connected, disconnecting`);
+          log.info(`${workerId}: Disconnect: There was a Controller connected, disconnecting`);
           currentConnection.controller.disconnect();
         }
       }
@@ -184,7 +184,7 @@ wssMitm.on('connection', (ws, req) => {
 
 /* Initialize websocket server from Controller */
 
-const wssScanner = new WebSocketServer({ port: config.controllerListener.port });
+const wssController = new WebSocketServer({ port: config.controllerListener.port });
 
 function identifyControlChannelFromWorkerId(workerId: string): string | null {
   // Try to look up connected worker id and see if it presented us with a device id
@@ -205,7 +205,7 @@ function identifyControlChannelFromWorkerId(workerId: string): string | null {
   return null;
 }
 
-wssScanner.on('connection', (ws, req) => {
+wssController.on('connection', (ws, req) => {
   if (config.controllerListener.secret) {
     if (config.controllerListener.secret != req.headers['x-rotom-secret']) {
       log.info(`CONTROLLER: New connection from ${req.socket.remoteAddress} - incorrect secret, rejecting`);
@@ -266,13 +266,13 @@ wssScanner.on('connection', (ws, req) => {
   const mainDeviceId = identifyControlChannelFromWorkerId(nextSpareWorkerId) as string;
   deviceInformation[mainDeviceId].lastControllerConnection = Date.now() / 1000;
 
-  log.info(`SCANNER: New connection from ${req.socket.remoteAddress} - will allocate ${nextSpareWorkerId}`);
+  log.info(`CONTROLLER: New connection from ${req.socket.remoteAddress} - will allocate ${nextSpareWorkerId}`);
 
   const currentConnection = currentConnections[nextSpareWorkerId];
-  const scannerConnection = new ControllerConnection(log, ws, currentConnection.deviceWorker);
-  currentConnection.controller = scannerConnection;
+  const controllerConnection = new ControllerConnection(log, ws, currentConnection.deviceWorker);
+  currentConnection.controller = controllerConnection;
 
-  scannerConnection.on('disconnected', (con: ControllerConnection) => {
+  controllerConnection.on('disconnected', (con: ControllerConnection) => {
     // Replace webservice connection as available
     const workerId = con.workerId;
     log.info(
@@ -303,14 +303,14 @@ if (config.logging.consoleStatus) {
 
     for (const connections of Object.values(currentConnections)) {
       if (connections && connections.deviceWorker && connections.deviceWorker.origin) {
-        const mitm = connections.deviceWorker;
-        const SCANNER = connections.controller;
+        const deviceWorker = connections.deviceWorker;
+        const CONTROLLER = connections.controller;
 
         connectionCounts.push(
-          `${mitm.origin}[${mitm.workerId}]: ${mitm.noMessagesSent}${
-            dateNow - mitm.dateLastMessageSent > 10000 ? '*' : ''
-          }/${mitm.noMessagesReceived}${dateNow - mitm.dateLastMessageReceived > 10000 ? '*' : ''} ${
-            SCANNER ? `SCANNER ${SCANNER.workerName}/${SCANNER.instanceNo}` : 'Unused'
+          `${deviceWorker.origin}[${deviceWorker.workerId}]: ${deviceWorker.noMessagesSent}${
+            dateNow - deviceWorker.dateLastMessageSent > 10000 ? '*' : ''
+          }/${deviceWorker.noMessagesReceived}${dateNow - deviceWorker.dateLastMessageReceived > 10000 ? '*' : ''} ${
+            CONTROLLER ? `CONTROLLER ${CONTROLLER.workerName}/${CONTROLLER.instanceNo}` : 'Unused'
           }`,
         );
       }
